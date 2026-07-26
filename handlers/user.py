@@ -273,9 +273,43 @@ async def process_audio_extraction_callback(callback: CallbackQuery, bot: Bot):
     output_mp3 = os.path.join(temp_dir, f"audio_{file_id}.mp3")
 
     try:
-        # Download video from Telegram
-        file_info = await bot.get_file(file_id)
-        await bot.download_file(file_info.file_path, input_mp4)
+        # Download video from Telegram or URL fallback
+        download_success = False
+        try:
+            file_info = await bot.get_file(file_id)
+            if file_info and file_info.file_path:
+                await bot.download_file(file_info.file_path, input_mp4)
+                if os.path.exists(input_mp4) and os.path.getsize(input_mp4) > 0:
+                    download_success = True
+        except Exception as dl_err:
+            logger.warning(f"bot.get_file download failed: {dl_err}. Trying URL fallback...")
+
+        if not download_success:
+            target_text = ""
+            if callback.message.reply_to_message and callback.message.reply_to_message.text:
+                target_text = callback.message.reply_to_message.text
+            elif callback.message.caption:
+                target_text = callback.message.caption
+
+            _, source_url = parse_url_platform(target_text)
+            if source_url:
+                import aiohttp
+                dl_res = await InstagramDownloader.download_media(source_url, temp_dir)
+                if dl_res and dl_res.get("media"):
+                    item = dl_res["media"][0]
+                    if item.get("url"):
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(item["url"]) as resp:
+                                with open(input_mp4, "wb") as f:
+                                    f.write(await resp.read())
+                    elif item.get("file_path"):
+                        shutil.copy(item["file_path"], input_mp4)
+                    if os.path.exists(input_mp4) and os.path.getsize(input_mp4) > 0:
+                        download_success = True
+
+        if not download_success:
+            await callback.message.reply("❌ Videoni yuklab olishning imkoni bo'lmadi. Iltimos, havolani qayta yuboring.")
+            return
 
         # Extract Audio via FFmpeg
         success = await extract_audio_ffmpeg(input_mp4, output_mp3)
@@ -292,12 +326,12 @@ async def process_audio_extraction_callback(callback: CallbackQuery, bot: Bot):
             )
         else:
             await callback.message.reply(
-                "❌ Videoni qayta ishlashda xatolik yuz berdi. FFmpeg o'rnatilganini tekshiring."
+                "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
             )
     except Exception as e:
         logger.exception(f"Error extracting audio: {e}")
         await callback.message.reply(
-            "❌ Videoni qayta ishlashda xatolik yuz berdi. FFmpeg o'rnatilganini tekshiring."
+            "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
         )
     finally:
         try:
@@ -330,9 +364,43 @@ async def process_video_note_callback(callback: CallbackQuery, bot: Bot):
     output_note = os.path.join(temp_dir, f"note_{file_id}.mp4")
 
     try:
-        # Download video from Telegram
-        file_info = await bot.get_file(file_id)
-        await bot.download_file(file_info.file_path, input_mp4)
+        # Download video from Telegram or URL fallback
+        download_success = False
+        try:
+            file_info = await bot.get_file(file_id)
+            if file_info and file_info.file_path:
+                await bot.download_file(file_info.file_path, input_mp4)
+                if os.path.exists(input_mp4) and os.path.getsize(input_mp4) > 0:
+                    download_success = True
+        except Exception as dl_err:
+            logger.warning(f"bot.get_file download failed: {dl_err}. Trying URL fallback...")
+
+        if not download_success:
+            target_text = ""
+            if callback.message.reply_to_message and callback.message.reply_to_message.text:
+                target_text = callback.message.reply_to_message.text
+            elif callback.message.caption:
+                target_text = callback.message.caption
+
+            _, source_url = parse_url_platform(target_text)
+            if source_url:
+                import aiohttp
+                dl_res = await InstagramDownloader.download_media(source_url, temp_dir)
+                if dl_res and dl_res.get("media"):
+                    item = dl_res["media"][0]
+                    if item.get("url"):
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(item["url"]) as resp:
+                                with open(input_mp4, "wb") as f:
+                                    f.write(await resp.read())
+                    elif item.get("file_path"):
+                        shutil.copy(item["file_path"], input_mp4)
+                    if os.path.exists(input_mp4) and os.path.getsize(input_mp4) > 0:
+                        download_success = True
+
+        if not download_success:
+            await callback.message.reply("❌ Videoni yuklab olishning imkoni bo'lmadi. Iltimos, havolani qayta yuboring.")
+            return
 
         # Convert to Video Note via FFmpeg
         success = await convert_video_note_ffmpeg(input_mp4, output_note)
@@ -343,12 +411,12 @@ async def process_video_note_callback(callback: CallbackQuery, bot: Bot):
             )
         else:
             await callback.message.reply(
-                "❌ Videoni qayta ishlashda xatolik yuz berdi. FFmpeg o'rnatilganini tekshiring."
+                "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
             )
     except Exception as e:
         logger.exception(f"Error converting video note: {e}")
         await callback.message.reply(
-            "❌ Videoni qayta ishlashda xatolik yuz berdi. FFmpeg o'rnatilganini tekshiring."
+            "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
         )
     finally:
         try:
