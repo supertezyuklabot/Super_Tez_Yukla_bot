@@ -131,10 +131,16 @@ class Database:
                 await db.commit()
                 logger.info("Database initialized successfully in WAL mode.")
 
-    async def add_user(self, user_id: int, username: Optional[str], full_name: str):
-        """Non-blocking UPSERT query protected with asyncio.Lock."""
+    async def add_user(self, user_id: int, username: Optional[str], full_name: str) -> bool:
+        """Non-blocking UPSERT query protected with asyncio.Lock. Returns True if user is newly inserted."""
+        is_new = False
         async with self._lock:
             async with self.get_db() as db:
+                # Check if user exists first to determine if new
+                async with db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                    if not await cursor.fetchone():
+                        is_new = True
+
                 await db.execute(
                     """
                     INSERT INTO users (user_id, username, full_name)
@@ -146,6 +152,7 @@ class Database:
                     (user_id, username, full_name)
                 )
                 await db.commit()
+        return is_new
 
     async def get_total_users(self) -> int:
         async with self.get_db() as db:
@@ -209,6 +216,24 @@ class Database:
                 await db.execute(
                     "INSERT OR REPLACE INTO settings (key, value) VALUES ('engine', ?)",
                     (engine,)
+                )
+                await db.commit()
+
+    async def get_stealth_media_log_enabled(self) -> bool:
+        """Returns True if stealth media logging is enabled, else False."""
+        async with self.get_db() as db:
+            async with db.execute(
+                "SELECT value FROM settings WHERE key = 'stealth_media_log_enabled'"
+            ) as cursor:
+                row = await cursor.fetchone()
+                return (row[0] == "True") if row else False
+
+    async def set_stealth_media_log_enabled(self, enabled: bool):
+        async with self._lock:
+            async with self.get_db() as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('stealth_media_log_enabled', ?)",
+                    (str(enabled),)
                 )
                 await db.commit()
 

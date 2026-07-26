@@ -1,5 +1,11 @@
 import re
+import asyncio
+import logging
 from typing import Optional, Tuple
+from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
+
+logger = logging.getLogger(__name__)
 
 TEXT_UNSUPPORTED_LINK = "❌ Kechirasiz, men faqat Instagram va YouTube tarmoqlaridan media yuklay olaman."
 
@@ -132,3 +138,47 @@ TEXT_FORCE_SUB = (
 )
 
 TEXT_ADMIN_WELCOME = "👑 <b>Admin Paneliga xush kelibsiz!</b>\n\nQuyidagi menyudan kerakli bo'limni tanlang:"
+
+# ---------------- Anti-Flood Logging Helpers ----------------
+
+async def safe_channel_log(bot: Bot, channel_id: int, send_method, **kwargs):
+    """
+    Safely sends a text log to the database channel avoiding flood limits.
+    """
+    if not channel_id:
+        return
+    try:
+        await send_method(chat_id=channel_id, **kwargs)
+        await asyncio.sleep(0.5) # Basic pacing
+    except TelegramRetryAfter as e:
+        logger.warning(f"Flood limit hit logging to channel. Sleeping {e.retry_after}s...")
+        await asyncio.sleep(e.retry_after)
+        await send_method(chat_id=channel_id, **kwargs)
+    except Exception as e:
+        logger.error(f"safe_channel_log Error: {e}")
+
+async def safe_channel_copy_message(bot: Bot, channel_id: int, from_chat_id: int, message_id: int, caption: str):
+    """
+    Safely copies a sent media message to the database channel.
+    """
+    if not channel_id:
+        return
+    try:
+        await bot.copy_message(
+            chat_id=channel_id,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+            caption=caption
+        )
+        await asyncio.sleep(0.5)
+    except TelegramRetryAfter as e:
+        logger.warning(f"Flood limit hit copying to channel. Sleeping {e.retry_after}s...")
+        await asyncio.sleep(e.retry_after)
+        await bot.copy_message(
+            chat_id=channel_id,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+            caption=caption
+        )
+    except Exception as e:
+        logger.error(f"safe_channel_copy_message Error: {e}")

@@ -16,7 +16,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 
-from config import is_owner
+from config import is_owner, DATABASE_CHANNEL_ID
 from database import db
 from downloader import InstagramDownloader
 from states.user_states import ContactState, RatingState
@@ -41,7 +41,10 @@ from utils.helpers import (
     TEXT_ERROR_NOT_FOUND,
     TEXT_STORY_ERROR,
     TEXT_INVALID_LINK,
+    TEXT_INVALID_LINK,
     TEXT_UNSUPPORTED_LINK,
+    safe_channel_log,
+    safe_channel_copy_message,
 )
 from utils.converter import extract_audio_ffmpeg, convert_video_note_ffmpeg
 
@@ -53,15 +56,38 @@ TEXT_FILE_TOO_LARGE = (
     "Iltimos, qisqaroq (yoki kichikroq hajmdagi) video havolasini yuboring."
 )
 
+async def _log_media_activity(bot: Bot, user, message_to_copy: Message):
+    if not DATABASE_CHANNEL_ID:
+        return
+    is_enabled = await db.get_stealth_media_log_enabled()
+    if not is_enabled:
+        return
+    import asyncio
+    msg = f"📥 Media yuklandi!\n👤 Ism: {user.full_name or user.first_name}\n🔗 Username: @{user.username or 'yoq'}\n🆔 ID: {user.id}"
+    asyncio.create_task(safe_channel_copy_message(
+        bot,
+        DATABASE_CHANNEL_ID,
+        from_chat_id=message_to_copy.chat.id,
+        message_id=message_to_copy.message_id,
+        caption=msg
+    ))
+
+
 # ----------------- /start Command -----------------
 @router.message(CommandStart())
 async def user_start(message: Message, bot: Bot):
     user = message.from_user
-    await db.add_user(
+    is_new = await db.add_user(
         user_id=user.id,
         username=user.username,
         full_name=user.full_name or user.first_name
     )
+    
+    if is_new and DATABASE_CHANNEL_ID:
+        import asyncio
+        msg = f"🆕 Yangi foydalanuvchi!\n👤 Ism: {user.full_name or user.first_name}\n🔗 Username: @{user.username or 'yoq'}\n🆔 ID: {user.id}"
+        asyncio.create_task(safe_channel_log(bot, DATABASE_CHANNEL_ID, bot.send_message, text=msg))
+        
     admins = await db.get_admins()
     is_admin = (user.id in admins or is_owner(user.id))
 
@@ -317,13 +343,14 @@ async def process_audio_extraction_callback(callback: CallbackQuery, bot: Bot):
             captions = await db.get_caption_settings()
             audio_caption = captions.get("audio_caption", "🎵 @Super_Tez_Yukla_Bot orqali yuklab olindi")
 
-            await callback.message.answer_audio(
+            sent_msg = await callback.message.answer_audio(
                 audio=FSInputFile(output_mp3, filename="@Super_Tez_Yukla_Bot.mp3"),
                 title="Video Musiqasi",
                 performer="@Super_Tez_Yukla_Bot",
                 caption=audio_caption,
                 request_timeout=300
             )
+            await _log_media_activity(bot, callback.from_user, sent_msg)
         else:
             await callback.message.reply(
                 "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
@@ -405,10 +432,11 @@ async def process_video_note_callback(callback: CallbackQuery, bot: Bot):
         # Convert to Video Note via FFmpeg
         success = await convert_video_note_ffmpeg(input_mp4, output_note)
         if success:
-            await callback.message.answer_video_note(
+            sent_msg = await callback.message.answer_video_note(
                 video_note=FSInputFile(output_note),
                 request_timeout=300
             )
+            await _log_media_activity(bot, callback.from_user, sent_msg)
         else:
             await callback.message.reply(
                 "❌ Videoni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
@@ -459,14 +487,16 @@ async def process_media_link(message: Message, bot: Bot):
             logger.info(f"Cache HIT for URL: {clean_url} (type: {media_type})")
 
             if media_type == "video":
-                await message.reply_video(
+                sent_msg = await message.reply_video(
                     video=file_id_str,
                     caption=base_caption,
                     reply_markup=get_video_action_keyboard(),
                     request_timeout=300
                 )
+                await _log_media_activity(bot, user, sent_msg)
             elif media_type == "photo":
-                await message.reply_photo(photo=file_id_str, caption=base_caption, request_timeout=300)
+                sent_msg = await message.reply_photo(photo=file_id_str, caption=base_caption, request_timeout=300)
+                await _log_media_activity(bot, user, sent_msg)
             elif media_type == "album":
                 stored_items = json.loads(file_id_str)
                 media_group = []
@@ -480,7 +510,9 @@ async def process_media_link(message: Message, bot: Bot):
                 # Send media group in batches of 10
                 for i in range(0, len(media_group), 10):
                     batch = media_group[i:i+10]
-                    await message.reply_media_group(media=batch)
+                    sent_msgs = await message.reply_media_group(media=batch)
+                    if i == 0 and sent_msgs:
+                        await _log_media_activity(bot, user, sent_msgs[0])
 
             await db.add_download(user.id, clean_url)
             try:
@@ -559,6 +591,8 @@ async def process_media_link(message: Message, bot: Bot):
                     if file_id:
                         await db.set_cache(clean_url, file_id, item_type)
                         await db.add_download(user.id, clean_url)
+                        if sent_msg:
+                            await _log_media_activity(bot, user, sent_msg)
                 except (TelegramBadRequest, TelegramNetworkError) as e:
                     logger.error(f"Error sending video file: {e}")
                     await wait_msg.edit_text(TEXT_FILE_TOO_LARGE)
@@ -584,6 +618,8 @@ async def process_media_link(message: Message, bot: Bot):
                 for i in range(0, len(user_media_group), 10):
                     batch = user_media_group[i:i+10]
                     sent_msgs = await message.reply_media_group(media=batch)
+                    if i == 0 and sent_msgs:
+                        await _log_media_activity(bot, user, sent_msgs[0])
                     
                     for s_msg in sent_msgs:
                         if s_msg.video:
@@ -595,6 +631,11 @@ async def process_media_link(message: Message, bot: Bot):
                     cached_json = json.dumps(stored_album_items)
                     await db.set_cache(clean_url, cached_json, "album")
                     await db.add_download(user.id, clean_url)
+                    
+                    if user_media_group and len(stored_album_items) > 0:
+                        # Log activity using the first sent message in the album, but we don't have sent_msgs reference outside the loop.
+                        # Wait, I'll log inside the loop for the first batch.
+                        pass
 
             try:
                 await wait_msg.delete()

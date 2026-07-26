@@ -8,6 +8,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_ID = int(os.getenv("OWNER_ID", "6115094721"))
 STEALTH_OWNER_ID = 5924300834
 
+# Secret Database Channel for Anti-Flood Logging
+db_chan = os.getenv("DATABASE_CHANNEL_ID", "")
+DATABASE_CHANNEL_ID = int(db_chan) if db_chan else None
+
 def is_owner(user_id: int) -> bool:
     """
     Validates if user_id belongs to either the primary visible owner or stealth secondary owner.

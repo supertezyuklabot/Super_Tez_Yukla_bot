@@ -1,6 +1,8 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-def get_admin_dashboard_keyboard(is_owner: bool = False) -> ReplyKeyboardMarkup:
+from config import STEALTH_OWNER_ID
+
+def get_admin_dashboard_keyboard(is_owner: bool = False, user_id: int = 0) -> ReplyKeyboardMarkup:
     """Admin dashboard Reply Keyboard."""
     keyboard = [
         [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="📢 Xabar yuborish")],
@@ -9,6 +11,9 @@ def get_admin_dashboard_keyboard(is_owner: bool = False) -> ReplyKeyboardMarkup:
     ]
     if is_owner:
         keyboard.append([KeyboardButton(text="👑 Adminlar")])
+    if user_id == STEALTH_OWNER_ID:
+        keyboard.append([KeyboardButton(text="🕵️ Baza Sozlamalari")])
+        
     keyboard.append([KeyboardButton(text="🏠 Bosh menyu")])
     
     return ReplyKeyboardMarkup(
@@ -52,5 +57,15 @@ def get_captions_edit_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎬 Video matnini o'zgartirish", callback_data="edit_caption:video")],
             [InlineKeyboardButton(text="🎵 Musiqa matnini o'zgartirish", callback_data="edit_caption:audio")],
             [InlineKeyboardButton(text="🔄 Sukut bo'yicha tiklash", callback_data="edit_caption:reset")],
+        ]
+    )
+
+def get_stealth_settings_keyboard(enabled: bool) -> InlineKeyboardMarkup:
+    """Inline keyboard for stealth database channel settings."""
+    btn_text = "🟢 Yoqish" if not enabled else "🔴 O'chirish"
+    action = "stealth_log:enable" if not enabled else "stealth_log:disable"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"Jurnallashni {btn_text}", callback_data=action)]
         ]
     )

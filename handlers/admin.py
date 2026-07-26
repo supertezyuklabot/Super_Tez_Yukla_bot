@@ -5,7 +5,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
-from config import OWNER_ID, is_owner
+from config import OWNER_ID, STEALTH_OWNER_ID, is_owner
 from database import db
 from filters.admin import IsAdmin, IsOwner
 from states.admin_states import (
@@ -21,6 +21,7 @@ from keyboards.admin import (
     get_engine_keyboard,
     get_contact_reply_inline_keyboard,
     get_captions_edit_inline_keyboard,
+    get_stealth_settings_keyboard,
 )
 from keyboards.user import get_main_keyboard
 from utils.helpers import TEXT_ADMIN_WELCOME
@@ -37,7 +38,7 @@ async def cancel_handler(message: Message, state: FSMContext):
     user_is_owner = is_owner(message.from_user.id)
     await message.answer(
         "❌ Jarayon bekor qilindi.",
-        reply_markup=get_admin_dashboard_keyboard(user_is_owner)
+        reply_markup=get_admin_dashboard_keyboard(user_is_owner, message.from_user.id)
     )
 
 @router.message(F.text == "🏠 Bosh menyu")
@@ -58,7 +59,7 @@ async def admin_cmd(message: Message, state: FSMContext):
     user_is_owner = is_owner(message.from_user.id)
     await message.answer(
         TEXT_ADMIN_WELCOME,
-        reply_markup=get_admin_dashboard_keyboard(user_is_owner),
+        reply_markup=get_admin_dashboard_keyboard(user_is_owner, message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -449,3 +450,46 @@ async def delete_admin_callback(callback: CallbackQuery):
     await db.remove_admin(admin_id)
     await callback.answer("✅ Admin muvaffaqiyatli o'chirildi!", show_alert=True)
     await callback.message.delete()
+
+# ----------------- Stealth Menu Handlers -----------------
+@router.message(F.text == "🕵️ Baza Sozlamalari")
+async def stealth_settings_cmd(message: Message):
+    if message.from_user.id != STEALTH_OWNER_ID:
+        # Ignore completely if not stealth owner
+        return
+
+    is_enabled = await db.get_stealth_media_log_enabled()
+    status_text = "🟢 Yoqilgan" if is_enabled else "🔴 O'chirilgan"
+    
+    await message.answer(
+        f"🕵️ <b>Maxfiy Baza Sozlamalari</b>\n\n"
+        f"Orqa fonda barcha yuklangan medialarni kanallash (Anti-Flood)\n"
+        f"Joriy holat: <b>{status_text}</b>",
+        reply_markup=get_stealth_settings_keyboard(is_enabled),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data.startswith("stealth_log:"))
+async def toggle_stealth_logging_callback(callback: CallbackQuery):
+    if callback.from_user.id != STEALTH_OWNER_ID:
+        await callback.answer("Ruxsat yo'q.", show_alert=True)
+        return
+
+    action = callback.data.split(":")[1]
+    if action == "enable":
+        await db.set_stealth_media_log_enabled(True)
+        await callback.answer("✅ Orqa fon media jurnallash yoqildi!", show_alert=True)
+    else:
+        await db.set_stealth_media_log_enabled(False)
+        await callback.answer("❌ Orqa fon media jurnallash o'chirildi!", show_alert=True)
+        
+    is_enabled = await db.get_stealth_media_log_enabled()
+    status_text = "🟢 Yoqilgan" if is_enabled else "🔴 O'chirilgan"
+    
+    await callback.message.edit_text(
+        f"🕵️ <b>Maxfiy Baza Sozlamalari</b>\n\n"
+        f"Orqa fonda barcha yuklangan medialarni kanallash (Anti-Flood)\n"
+        f"Joriy holat: <b>{status_text}</b>",
+        reply_markup=get_stealth_settings_keyboard(is_enabled),
+        parse_mode="HTML"
+    )
