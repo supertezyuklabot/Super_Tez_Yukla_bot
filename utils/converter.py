@@ -92,6 +92,7 @@ async def convert_video_note_ffmpeg(input_mp4: str, output_note_mp4: str) -> boo
     """
     Converts video into a Telegram Video Note (cropped 1:1, scaled to 640x640, yuv420p).
     Supports all video aspect ratios (9:16 Reels, 16:9 Landscape, 1:1 Square).
+    Strictly limits file size to stay under Telegram's 12MB video note limit.
     """
     ffmpeg_exe = get_ffmpeg_cmd()
     
@@ -105,9 +106,12 @@ async def convert_video_note_ffmpeg(input_mp4: str, output_note_mp4: str) -> boo
         "-vf", vf_filter,
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-crf", "23",
-        "-preset", "ultrafast",
+        "-crf", "30",              # Higher CRF for smaller size
+        "-maxrate", "1200k",       # Limit max bitrate
+        "-bufsize", "2400k",
+        "-preset", "veryfast",     # Better compression than ultrafast
         "-c:a", "aac",
+        "-b:a", "64k",             # Lower audio bitrate for video note
         output_note_mp4
     ]
     logger.info(f"Running video note conversion command: {' '.join(cmd)}")
@@ -133,7 +137,12 @@ async def convert_video_note_ffmpeg(input_mp4: str, output_note_mp4: str) -> boo
             "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640",
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
-            "-preset", "ultrafast",
+            "-crf", "30",
+            "-maxrate", "1200k",
+            "-bufsize", "2400k",
+            "-preset", "veryfast",
+            "-c:a", "aac",
+            "-b:a", "64k",
             output_note_mp4
         ]
         proc_f = await asyncio.create_subprocess_exec(
