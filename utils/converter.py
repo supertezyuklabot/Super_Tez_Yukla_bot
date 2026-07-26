@@ -88,16 +88,19 @@ async def extract_audio_ffmpeg(input_mp4: str, output_mp3: str) -> bool:
 
 async def convert_video_note_ffmpeg(input_mp4: str, output_note_mp4: str) -> bool:
     """
-    Converts video into a Telegram Video Note (cropped 1:1, scaled to 640x640).
-    Command: ffmpeg -y -i <input_mp4> -vf "crop=min(iw,ih):min(iw,ih),scale=640:640" -c:v libx264 -crf 23 -preset ultrafast -c:a aac <output_note_mp4>
+    Converts video into a Telegram Video Note (cropped 1:1, scaled to 640x640, yuv420p).
+    Filter: crop='min(iw,ih)':'min(iw,ih)',scale=640:640
     """
     ffmpeg_exe = get_ffmpeg_cmd()
+    vf_filter = "crop='min(iw,ih)':'min(iw,ih)',scale=640:640"
+    
     cmd = [
         ffmpeg_exe,
         "-y",
         "-i", input_mp4,
-        "-vf", "crop=min(iw,ih):min(iw,ih),scale=640:640",
+        "-vf", vf_filter,
         "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
         "-crf", "23",
         "-preset", "ultrafast",
         "-c:a", "aac",
@@ -114,12 +117,13 @@ async def convert_video_note_ffmpeg(input_mp4: str, output_note_mp4: str) -> boo
         stdout, stderr = await proc.communicate()
 
         if proc.returncode != 0:
-            logger.warning(f"FFmpeg libx264 video note conversion failed (code {proc.returncode}), trying default video encoder...")
+            logger.warning(f"FFmpeg libx264 video note conversion failed (code {proc.returncode}): {stderr.decode(errors='ignore')}, trying fallback...")
             cmd_fallback = [
                 ffmpeg_exe,
                 "-y",
                 "-i", input_mp4,
-                "-vf", "crop=min(iw,ih):min(iw,ih),scale=640:640",
+                "-vf", vf_filter,
+                "-pix_fmt", "yuv420p",
                 output_note_mp4
             ]
             proc_f = await asyncio.create_subprocess_exec(
